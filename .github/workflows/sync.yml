@@ -1,0 +1,67 @@
+name: Sync Fork, Tags and Custom-Dev Branch
+
+# Configura quando eseguire il workflow
+on:
+  schedule:
+    # Esegue automaticamente ogni giorno a mezzanotte (puoi modificarlo)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Permette anche di avviarlo manualmente da GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    # Permessi necessari per scrivere sul proprio repository
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout del repository (tuo fork)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necessario per scaricare tutta la cronologia e i tag
+
+      - name: Configura Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Aggiungi l'upstream (progetto originale)
+        env:
+          UPSTREAM_URL: "https://github.com/MetrolistGroup/Metrolist.git"
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream --tags
+
+      - name: Sincronizza il branch main
+        run: |
+          git checkout main
+          # Esegue un merge dal main originale preservando le tue modifiche locali (es. il workflow)
+          git merge upstream/main --no-edit || echo "Conflitto da risolvere manualmente o merge fallito"
+          git push origin main
+
+      - name: Sincronizza i tags
+        run: |
+          # Spinge tutti i tag nuovi/aggiornati dell'upstream sul tuo fork
+          git push origin --tags
+
+      - name: Sincronizza il branch custom-dev tramite merge con l'ultimo tag
+        run: |
+          # Trova l'ultimo tag in assoluto ordinato cronologicamente
+          LATEST_TAG=$(git describe --tags --abbrev=0 $(git rev-list --tags --max-count=1))
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Nessun tag trovato nel repository!"
+            exit 1
+          fi
+          
+          echo "Ultimo tag trovato: $LATEST_TAG"
+          
+          # Passa al branch custom-dev (o crealo se non esiste)
+          git checkout custom-dev || git checkout -b custom-dev
+          
+          # Esegue il merge dell'ultimo tag nel branch custom-dev, mantenendo la cronologia e i tuoi commit
+          git merge "$LATEST_TAG" --no-edit || echo "Conflitto durante il merge con il tag. Da risolvere manualmente."
+          
+          # Invia le modifiche aggiornate al fork
+          git push origin custom-dev
